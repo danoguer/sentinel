@@ -6,62 +6,62 @@ import (
 	"flag"
 	"fmt"
 	"github.com/joho/godotenv"
+	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 func main() {
 	_ = godotenv.Load("secrets/.env")
-
 	flag.Parse()
 
 	userArgs := flag.Args()
 
+	// 1. Strict check for history
 	if len(userArgs) > 0 {
 		if userArgs[0] == "history" || userArgs[0] == "vault" {
 			printVaultHistory()
-			return
+			return // This return must stop everything
 		}
+	}
+
+	// 2. Everything else only happens if we didn't return above
+	vault, err := process.NewTerminalData("/tmp/sentinel_vault.log")
+	if err != nil {
+		log.Fatalf("Critical: %v", err)
+	}
+	defer vault.Close()
+
+	if len(userArgs) > 0 {
 		question := strings.Join(userArgs, " ")
-		runClientMode(question)
+		fmt.Println("🛡️ Sentinel: Analyzing...")
+		AI.Run(question)
 		return
 	}
 
-	runDaemonMode()
+	runDaemonMode(vault)
 }
 
-func runDaemonMode() {
+func runDaemonMode(vault *process.TerminalData) {
 	fmt.Println("🚀 Sentinel Daemon starting...")
 
 	_ = os.Remove("/tmp/sentinel.sock")
 
-	go process.StartSocketListener()
+	go process.StartSocketListener(vault)
 
 	fmt.Println("🛡️  Sentinel Warehouse open at /tmp/sentinel.sock")
-	select {}
-}
 
-func runClientMode(question string) {
-	if len(flag.Args()) < 1 {
-		fmt.Println("❌ Error: Please provide a question.")
-		return
-	}
-	userQuestion := flag.Args()[0]
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	history, err := os.ReadFile("/tmp/sentinel_vault.log")
-	if err != nil {
-		fmt.Println("⚠️  Note: No history found yet. Asking Gemini without context.")
-	}
-
-	fullPrompt := fmt.Sprintf("CONTEXT (Terminal History):\n%s\n\nUSER QUESTION: %s", string(history), userQuestion)
-
-	AI.Run(fullPrompt)
+	<-sigChan
+	fmt.Println("\n🛡️ Sentinel: Shutting down...")
 }
 
 func printVaultHistory() {
 	vaultPath := "/tmp/sentinel_vault.log"
-
-	// We can reuse the safe reader we made earlier!
 	data := getRecentVaultHistory(vaultPath)
 
 	if data == "" {

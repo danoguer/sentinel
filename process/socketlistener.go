@@ -10,6 +10,7 @@ import (
 	"sync"
 )
 
+// Compiled at package level to avoid recompilation on every call.
 var (
 	ansiRegex   = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 	promptRegex = regexp.MustCompile(`^.*?@.*?:.*?[\$#]\s*`)
@@ -18,17 +19,35 @@ var (
 	jwtRegex    = regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}`)
 )
 
+// TerminalData holds sanitized terminal history (capped at 50 lines), guarded by an embedded Mutex.
 type TerminalData struct {
 	sync.Mutex
 	Memory []string
+	vault  *os.File
 }
 
-var GlobalData = &TerminalData{
-	Memory: make([]string, 0, 50),
+func NewTerminalData(logPath string) (*TerminalData, error) {
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TerminalData{
+		Memory: make([]string, 0, 50),
+		vault:  f,
+	}, nil
 }
 
-func (w *TerminalData) Addline(line string) {
-	// Hidding every sensitive content
+func (w *TerminalData) Close() {
+	w.Lock()
+	defer w.Unlock()
+	if w.vault != nil {
+		w.vault.Close()
+	}
+}
+
+// AddLine sanitizes a raw terminal line (strips ANSI, IPs, secrets) and appends it to memory and the vault.
+func (w *TerminalData) AddLine(line string) {
 	line = ansiRegex.ReplaceAllString(line, "")
 	line = promptRegex.ReplaceAllString(line, "")
 	line = ipRegex.ReplaceAllString(line, "[IP_REDACTED]")
@@ -39,63 +58,49 @@ func (w *TerminalData) Addline(line string) {
 		return
 	}
 
-	// Mutex the process
 	w.Lock()
 	defer w.Unlock()
 
-	// Adding the new line and truncates if it is bigger than 50 lines
 	w.Memory = append(w.Memory, line)
 	if len(w.Memory) > 50 {
 		w.Memory = w.Memory[1:]
 	}
 
-	// Opening/Creating the log file for the terminal history
-	vault, err := os.OpenFile("/tmp/sentinel_vault.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		defer vault.Close()
-		_, err2 := vault.WriteString(line + "\n")
-		if err2 != nil {
-			fmt.Println("WriteString is not working at writing in the vault")
-		}
-	} else {
-		fmt.Println("OpenFile couldnt open the Vault File")
+	if _, err := w.vault.WriteString(line + "\n"); err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: failed to write to vault: %v\n", err)
 	}
 }
 
-func StartSocketListener() {
-	// Creating the socket path
+// StartSocketListener opens a Unix socket and dispatches each connection to handleConnection.
+func StartSocketListener(vault *TerminalData) {
 	socketPath := "/tmp/sentinel.sock"
 
-	// Cleaning the socket path
 	_ = os.Remove(socketPath)
 
-	// Creating the socket with the path we just cleaned
 	sock, err := net.Listen("unix", socketPath)
 	if err != nil {
-		fmt.Println("❌ Listener Error:", err)
+		fmt.Fprintf(os.Stderr, "sentinel: failed to start socket listener: %v\n", err)
 		return
 	}
 	defer sock.Close()
 
 	for {
-		// Waits for a new connections attempt from a terminal
 		conn, err := sock.Accept()
 		if err != nil {
 			continue
 		}
 
-		go handleConnection(conn)
+		go handleConnection(conn, vault)
 	}
 }
 
-func handleConnection(c net.Conn) {
+func handleConnection(c net.Conn, vault *TerminalData) {
 	defer c.Close()
 
-	// Reads everything from the connection
 	scanner := bufio.NewScanner(c)
 
-	// Copy everything in our struct
 	for scanner.Scan() {
-		GlobalData.Addline(scanner.Text())
+		vault.AddLine(scanner.Text())
 	}
 }
+
