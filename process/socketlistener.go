@@ -102,5 +102,7 @@ func handleConnection(c net.Conn, vault *TerminalData) {
 	for scanner.Scan() {
 		vault.AddLine(scanner.Text())
 	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "sentinel: error reading from socket: %v\n", err)
+	}
 }
-
