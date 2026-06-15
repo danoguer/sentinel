@@ -3,21 +3,22 @@ package AI
 import (
 	"context"
 	"fmt"
-	"google.golang.org/genai"
 	"log"
+	"math/rand"
 	"os"
 	"time"
+
+	"google.golang.org/genai"
 )
 
-// Run sends prompt to Gemini and executes any tool calls it requests
-// until a final text response is produced (the agent loop).
 func Run(prompt string) {
+	currentHostTime := time.Now().Format("Monday, 02-Jan-2006 15:04:05 MST")
 
-	// Instructs the model to behave as a minimal CLI tool, avoiding verbose explanations.
-	const sentinelPrompt = `You are a CLI utility. 
-	- Answer directly, as shorter you could. 
-	- Use tools (search, read, history) only if the question cannot be answered otherwise. 
-	- Output ONLY the requested information.`
+	sentinelPrompt := fmt.Sprintf(`You are an advanced SRE CLI utility. 
+	- Current host system time: %s
+	- Answer directly, as short as possible. 
+	- If you need context to answer the user's prompt (like logs, system stats, or code files), call the 'analyze_local_environment' tool.
+	- Output ONLY the requested information.`, currentHostTime)
 
 	apiKey := os.Getenv("AI_API_KEY")
 	if apiKey == "" {
@@ -33,73 +34,126 @@ func Run(prompt string) {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Temperature 0.2: keeps answer focused which matters for a CLI where consistency is expected.
-	chat, err := client.Chats.Create(ctx, "gemini-3-flash-preview", &genai.GenerateContentConfig{
+	config := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{Role: "system", Parts: []*genai.Part{{Text: sentinelPrompt}}},
 		Temperature:       genai.Ptr(float32(0.2)),
 		Tools: []*genai.Tool{{
 			FunctionDeclarations: []*genai.FunctionDeclaration{
-				{Name: "read_file", Description: "Reads a file.", Parameters: &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"filepath": {Type: genai.TypeString}}}},
-				{Name: "search_file", Description: "Searches for a file.", Parameters: &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"filename": {Type: genai.TypeString}, "start_dir": {Type: genai.TypeString}}}},
-				{Name: "get_terminal_history", Description: "Fetches recent terminal history.", Parameters: &genai.Schema{Type: genai.TypeObject}},
+				{
+					Name:        "analyze_local_environment",
+					Description: "Fetches system stats, terminal history, or specific files. Use this to gather context before answering.",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"fetch_terminal_vault": {
+								Type:        genai.TypeBoolean,
+								Description: "Set to true to read the last 50 lines of the terminal log.",
+							},
+							"fetch_system_telemetry": {
+								Type:        genai.TypeBoolean,
+								Description: "Set to true to read RAM, Disk usage, and active network ports.",
+							},
+							"files_to_read": {
+								Type:        genai.TypeArray,
+								Description: "A list of specific file paths to read (e.g., ['main.go', 'ai.go']).",
+								Items:       &genai.Schema{Type: genai.TypeString},
+							},
+						},
+					},
+				},
 			},
 		}},
-	}, nil)
-	if err != nil {
-		log.Fatalf("Failed to create chat: %v", err)
 	}
 
-	// Wraps every API call with 3 retries (2s apart) to handle transient rate limits or network errors.
-	sendMessageWithRetry := func(msg genai.Part) (*genai.GenerateContentResponse, error) {
+	var history []*genai.Content
+
+	history = append(history, &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{{Text: prompt}},
+	})
+
+	executeRequestWithRetry := func(currentHistory []*genai.Content) (*genai.GenerateContentResponse, error) {
 		var lastErr error
-		for i := 0; i < 3; i++ {
-			res, err := chat.SendMessage(ctx, msg)
+		baseDelay := 5 * time.Second
+		maxAttempts := 8
+
+		for i := 0; i < maxAttempts; i++ {
+			res, err := client.Models.GenerateContent(ctx, "gemini-3.1-flash-lite", currentHistory, config)
 			if err == nil {
 				return res, nil
 			}
 			lastErr = err
-			fmt.Printf("⚠️  API error, retrying (%d/3): %v\n", i+1, err)
-			time.Sleep(2 * time.Second)
+
+			fmt.Printf("⚠️  API error, retrying (%d/%d): %v\n", i+1, maxAttempts, err)
+
+			delay := baseDelay * time.Duration(1<<i)
+			jitter := time.Duration(rand.Intn(400)) * time.Millisecond
+			time.Sleep(delay + jitter)
 		}
 		return nil, lastErr
 	}
 
-	result, err := sendMessageWithRetry(genai.Part{Text: prompt})
+	result, err := executeRequestWithRetry(history)
 	if err != nil {
 		log.Fatalf("API request failed after retries: %v", err)
 	}
-	part := result.Candidates[0].Content.Parts[0]
 
-	// Resolve function calls until the model provides a final text response.
+	history = append(history, result.Candidates[0].Content)
+
+	var part *genai.Part
+	if len(result.Candidates) > 0 && result.Candidates[0].Content != nil && len(result.Candidates[0].Content.Parts) > 0 {
+		part = result.Candidates[0].Content.Parts[0]
+	} else {
+		log.Fatalf("Critical: Initial API handshake returned empty content arrays.")
+	}
+
 	for part.FunctionCall != nil {
 		funcName := part.FunctionCall.Name
 		var toolResult string
 
 		switch funcName {
-		case "read_file":
-			toolResult = localReadFile(part.FunctionCall.Args["filepath"].(string))
-		case "search_file":
-			toolResult = localSearchFile(part.FunctionCall.Args["filename"].(string), part.FunctionCall.Args["start_dir"].(string))
-		case "get_terminal_history":
-			fmt.Printf("📜 AI is reviewing terminal history...\n")
-			toolResult = localGetHistory()
+		case "analyze_local_environment":
+			fmt.Printf("🛡️  Sentinel: Gathering requested context...\n")
+			toolResult = ExecuteAnalyzeLocalEnvironment(part.FunctionCall.Args)
+		default:
+			toolResult = fmt.Sprintf("Error: Tool '%s' is not implemented.", funcName)
 		}
 
-		// Return tool output to the model for final synthesis.
-		result, err = sendMessageWithRetry(genai.Part{
-			FunctionResponse: &genai.FunctionResponse{
-				Name:     funcName,
-				Response: map[string]any{"content": toolResult},
-			},
-		})
+		toolResponseContent := &genai.Content{
+			Role: "user",
+			Parts: []*genai.Part{{
+				FunctionResponse: &genai.FunctionResponse{
+					Name:     funcName,
+					Response: map[string]any{"content": toolResult},
+				},
+			}},
+		}
+
+		nextTurnHistory := append(history, toolResponseContent)
+
+		result, err = executeRequestWithRetry(nextTurnHistory)
 		if err != nil {
 			log.Fatalf("Failed to send tool data after retries: %v", err)
 		}
-		part = result.Candidates[0].Content.Parts[0]
+
+		history = append(history, toolResponseContent)
+		history = append(history, result.Candidates[0].Content)
+
+		if len(result.Candidates) > 0 && result.Candidates[0].Content != nil && len(result.Candidates[0].Content.Parts) > 0 {
+			part = result.Candidates[0].Content.Parts[0]
+		} else {
+			log.Fatalf("Critical: Model returned an empty payload loop sequence.")
+		}
 	}
 
-	if part.Text != "" {
-		fmt.Println("\n🤖 Sentinel AI:")
-		fmt.Println(part.Text)
+	if len(result.Candidates) > 0 && result.Candidates[0].Content != nil && len(result.Candidates[0].Content.Parts) > 0 {
+		finalPart := result.Candidates[0].Content.Parts[0]
+		if finalPart.Text != "" {
+			fmt.Println("\n🤖 Sentinel AI:")
+			fmt.Println(finalPart.Text)
+		}
+	} else {
+		fmt.Println("\n⚠️  Sentinel AI: Process finalized but no readable text chunks were found.")
 	}
 }
+

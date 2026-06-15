@@ -14,20 +14,18 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load("secrets/.env")
+	_ = godotenv.Overload("secrets/.env")
 	flag.Parse()
 
 	userArgs := flag.Args()
 
-	// 1. Strict check for history
 	if len(userArgs) > 0 {
 		if userArgs[0] == "history" || userArgs[0] == "vault" {
 			printVaultHistory()
-			return // This return must stop everything
+			return
 		}
 	}
 
-	// 2. Everything else only happens if we didn't return above
 	vault, err := process.NewTerminalData("/tmp/sentinel_vault.log")
 	if err != nil {
 		log.Fatalf("Critical: %v", err)
@@ -36,7 +34,8 @@ func main() {
 
 	if len(userArgs) > 0 {
 		question := strings.Join(userArgs, " ")
-		fmt.Println("🛡️ Sentinel: Analyzing...")
+		fmt.Println("🛡️ Sentinel: Initializing 1-shot sequence...")
+
 		AI.Run(question)
 		return
 	}
