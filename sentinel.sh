@@ -80,6 +80,5 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
 fi
 
 echo "------------------------------------------------"
-echo "✅ Done! Terminal deadlock is mathematically impossible."
-echo "✅ 100% Rootless deployment successful."
-echo "👉 Open a new terminal to start, then test it by typing: sentinel what is the time"
+echo "✅ Deployment successful."
+echo "👉 Open a new terminal to start"
