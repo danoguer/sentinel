@@ -15,7 +15,9 @@ func resolveFilePath(requestedPath string) string {
 	targetName := filepath.Base(requestedPath)
 	var foundPath string
 
-	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	// FIX: Explicitly assign to the blank identifier '_' to tell the linter
+	// that we are intentionally ignoring directory walking errors here.
+	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}

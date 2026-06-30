@@ -5,12 +5,13 @@ import (
 	"Sentinel/process"
 	"flag"
 	"fmt"
-	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -19,14 +20,10 @@ func main() {
 
 	userArgs := flag.Args()
 
-	if len(userArgs) > 0 {
-		if userArgs[0] == "history" || userArgs[0] == "vault" {
-			printVaultHistory()
-			return
-		}
-	}
+	uid := os.Getuid()
+	vaultPath := fmt.Sprintf("/tmp/sentinel_vault_%d.log", uid)
 
-	vault, err := process.NewTerminalData("/tmp/sentinel_vault.log")
+	vault, err := process.NewTerminalData(vaultPath)
 	if err != nil {
 		log.Fatalf("Critical: %v", err)
 	}
@@ -44,55 +41,20 @@ func main() {
 }
 
 func runDaemonMode(vault *process.TerminalData) {
+	uid := os.Getuid()
+	socketPath := fmt.Sprintf("/tmp/sentinel_%d.sock", uid)
+
 	fmt.Println("🚀 Sentinel Daemon starting...")
 
-	_ = os.Remove("/tmp/sentinel.sock")
+	_ = os.Remove(socketPath)
 
 	go process.StartSocketListener(vault)
 
-	fmt.Println("🛡️  Sentinel Warehouse open at /tmp/sentinel.sock")
+	fmt.Printf("🛡️  Sentinel Warehouse open at %s\n", socketPath)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	<-sigChan
 	fmt.Println("\n🛡️ Sentinel: Shutting down...")
-}
-
-func printVaultHistory() {
-	vaultPath := "/tmp/sentinel_vault.log"
-	data := getRecentVaultHistory(vaultPath)
-
-	if data == "" {
-		fmt.Println("🛡️ Sentinel: The vault is currently empty.")
-		return
-	}
-
-	fmt.Println("🛡️ --- SENTINEL VAULT HISTORY --- 🛡️")
-	fmt.Println(data)
-	fmt.Println("------------------------------------")
-}
-
-func getRecentVaultHistory(filePath string) string {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	stat, err := file.Stat()
-	if err != nil {
-		return ""
-	}
-
-	if stat.Size() < 4000 {
-		bytes, _ := os.ReadFile(filePath)
-		return string(bytes)
-	}
-
-	file.Seek(-4000, 2)
-	buffer := make([]byte, 4000)
-	file.Read(buffer)
-
-	return string(buffer)
 }
