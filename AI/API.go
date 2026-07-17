@@ -8,21 +8,60 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"google.golang.org/genai"
 )
+
+func getAPIKey() string {
+
+	apiKey := os.Getenv("AI_API_KEY")
+	if apiKey != "" {
+		return apiKey
+	}
+
+	fmt.Println("🛡️  Sentinel: Local AI_API_KEY not found. Fallback: Querying AWS Secrets Manager...")
+
+	ctx := context.TODO()
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		log.Printf("⚠️  AWS Config Error: %v. (Ensure instance profile or AWS CLI credentials are set up)", err)
+		return ""
+	}
+
+	client := secretsmanager.NewFromConfig(cfg)
+	secretName := "sentinel/gemini-api-key"
+
+	input := &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(secretName),
+	}
+
+	result, err := client.GetSecretValue(ctx, input)
+	if err != nil {
+		log.Printf("❌ AWS Secrets Manager Error: %v", err)
+		return ""
+	}
+
+	if result.SecretString != nil {
+		return *result.SecretString
+	}
+
+	return ""
+}
 
 func Run(prompt string) {
 	currentHostTime := time.Now().Format("Monday, 02-Jan-2006 15:04:05 MST")
 
-	sentinelPrompt := fmt.Sprintf(`You are an advanced SRE CLI utility. 
-	- Current host system time: %s
-	- Answer directly, as short as possible. 
-	- If you need context to answer the user's prompt (like logs, system stats, or code files), call the 'analyze_local_environment' tool.
-	- Output ONLY the requested information.`, currentHostTime)
+	sentinelPrompt := fmt.Sprintf(`You are an advanced SRE CLI utility.
+    - Current host system time: %s
+    - Answer directly, as short as possible.
+    - If you need context to answer the user's prompt (like logs, system stats, or code files), call the 'analyze_local_environment' tool.
+    - Output ONLY the requested information.`, currentHostTime)
 
-	apiKey := os.Getenv("AI_API_KEY")
+	apiKey := getAPIKey()
 	if apiKey == "" {
-		log.Fatal("Error: AI_API_KEY is not set in secrets/.env")
+		log.Fatal("Critical Error: AI_API_KEY could not be loaded from local environment OR AWS Secrets Manager.")
 	}
 
 	ctx := context.Background()
@@ -156,4 +195,3 @@ func Run(prompt string) {
 		fmt.Println("\n⚠️  Sentinel AI: Process finalized but no readable text chunks were found.")
 	}
 }
-
