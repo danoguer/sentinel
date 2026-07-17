@@ -97,3 +97,22 @@ func TestAddLineSanitization(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkAddLineSanitization(b *testing.B) {
+	heavyInput := "admin@prod-node-01:~$ curl -u webapp_admin:SecretPassword123 -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMe' https://192.168.1.105/api/v1/deploy"
+
+	tmpDir := b.TempDir()
+	logPath := filepath.Join(tmpDir, "bench_sentinel.log")
+
+	vault, err := process.NewTerminalData(logPath)
+	if err != nil {
+		b.Fatalf("failed to initialize vault for benchmark: %v", err)
+	}
+	defer vault.Close()
+
+	b.ResetTimer()
+
+	for b.Loop(){
+		vault.AddLine(heavyInput)
+	}
+}
