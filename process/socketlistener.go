@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
+	"Sentinel/metrics"
 )
 
 var (
@@ -45,12 +47,27 @@ func (w *TerminalData) Close() {
 }
 
 func (w *TerminalData) AddLine(line string) {
+	startTime := time.Now()
+
+	defer func() {
+		metrics.LinesProcessed.Inc()
+		metrics.SanitizationDuration.Observe(time.Since(startTime).Seconds())
+	}()
+
 	line = ansiRegex.ReplaceAllString(line, "")
 	line = promptRegex.ReplaceAllString(line, "")
+
+	beforeSecurity := line
+
 	line = ipRegex.ReplaceAllString(line, "[IP_REDACTED]")
 	line = secretRegex.ReplaceAllString(line, "$1=[REDACTED_SECRET]")
 	line = jwtRegex.ReplaceAllString(line, "[JWT_REDACTED]")
 	line = strings.TrimSpace(line)
+
+	if line != beforeSecurity {
+		metrics.SecretsRedacted.Inc()
+	}
+
 	if line == "" {
 		return
 	}

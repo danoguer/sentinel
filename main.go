@@ -3,6 +3,7 @@ package main
 import (
 	"Sentinel/AI"
 	"Sentinel/process"
+	"Sentinel/metrics"
 	"flag"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 )
 
 func main() {
+	metrics.StartServer(":9090")
 	_ = godotenv.Overload("secrets/.env")
 	flag.Parse()
 
