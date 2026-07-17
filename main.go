@@ -48,7 +48,7 @@ func runDaemonMode(vault *process.TerminalData) {
 
 	_ = os.Remove(socketPath)
 
-	go process.StartSocketListener(vault)
+	go process.StartSocketListener(vault, socketPath)
 
 	fmt.Printf("🛡️  Sentinel Warehouse open at %s\n", socketPath)
 

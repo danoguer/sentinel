@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// GetLocalSystemSnapshot gathers real host machine telemetry without external dependencies.
 func GetLocalSystemSnapshot() string {
 	if runtime.GOOS != "linux" {
 		return fmt.Sprintf("OS: %s | ARCH: %s (Host telemetry only supported natively on Linux kernels)", runtime.GOOS, runtime.GOARCH)
@@ -50,7 +49,7 @@ func GetLocalSystemSnapshot() string {
 	return fmt.Sprintf("OS: %s | Host Load (1/5/15m): [%s] | RAM: %s", runtime.GOOS, loadStr, memStr)
 }
 
-// parseMemLine extracts raw data metrics from /proc/meminfo rows.
+
 func parseMemLine(line string) string {
 	fields := strings.Fields(line)
 	if len(fields) >= 2 {
@@ -63,9 +62,11 @@ func parseMemLine(line string) string {
 	return ""
 }
 
-// localGetHistory reads the final tail chunk of the terminal storage engine vault safely.
+
 func localGetHistory() string {
-	vaultPath := "/tmp/sentinel_vault.log"
+	uid := os.Getuid()
+	vaultPath := fmt.Sprintf("/tmp/sentinel_vault_%d.log", uid)
+
 	file, err := os.Open(vaultPath)
 	if err != nil {
 		return "Error: Vault is empty or not found."

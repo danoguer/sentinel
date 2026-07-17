@@ -43,6 +43,7 @@ systemctl --user enable sentinel.service
 systemctl --user restart sentinel.service
 
 echo "🔗 Injecting Zero-Block Hook..."
+# FIX: Dynamically routes the shell session output to the specific UID's unix socket via $(id -u)
 cat <<'EOF' >> "$BASHRC"
 
 # --- SENTINEL_START ---
@@ -51,7 +52,7 @@ if [[ $- == *i* ]] && [ -z "$SENTINEL_ACTIVE" ]; then
 
     SESSION_LOG=$(mktemp /tmp/sentinel_session_XXXXXX.log)
 
-    ( tail -f "$SESSION_LOG" | nc -U /tmp/sentinel.sock >/dev/null 2>&1 ) &
+    ( tail -f "$SESSION_LOG" | nc -U "/tmp/sentinel_$(id -u).sock" >/dev/null 2>&1 ) &
     TAIL_PID=$!
 
     script -q -f "$SESSION_LOG"
