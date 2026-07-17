@@ -10,32 +10,33 @@ permissions:
   contents: write
 
 jobs:
-    test-and-validate:
-      runs-on: ubuntu-latest
+  test-and-validate:
+    runs-on: ubuntu-latest
 
-      steps:
-        - name: Check out our repository code
-          uses: actions/checkout@v4
-        
-        - name: Set up Go environment
-          uses: actions/setup-go@v5
-          with:
-            go-version: '1.22'
+    steps:
+      - name: Check out our repository code
+        uses: actions/checkout@v4
 
-        - name: Verify compilation (Build check)
-          run: go build -v -o /dev/null ./...
+      - name: Set up Go environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
 
-        - name: Build Production Binary
-          if: startsWith(github.ref, 'refs/tags/')
-          run: |
-            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o sentinel main.go
+      - name: Verify compilation (Build check)
+        run: go build -v -o /dev/null ./...
 
-        - name: Create Github Release
-          if: startsWith(github.ref, 'refs/tags/')
-          uses: softprops/action-gh-release@v2
-          with:
-            files: sentinel
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Automated Test Suite
+        run: go test -v ./...
 
+      - name: Build Production Binary
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o sentinel main.go
 
+      - name: Create Github Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sentinel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
