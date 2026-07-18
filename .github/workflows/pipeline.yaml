@@ -20,23 +20,39 @@ jobs:
       - name: Set up Go environment
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version: '1.22.x'
+
+      - name: Install Linting Tools
+        run: |
+          go install github.com/kisielk/errcheck@latest
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.1
+
+      - name: Run Linters & Errcheck
+        run: |
+          golangci-lint run ./...
+          errcheck ./...
 
       - name: Verify compilation (Build check)
         run: go build -v -o /dev/null ./...
 
       - name: Run Automated Test Suite
-        run: go test -v ./...
+        run: go test -v -race -cover ./...
 
-      - name: Build Production Binary
+      - name: Build Production Binaries (CLI & Agent)
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o sentinel main.go
+          mkdir -p build
+          # Compilar el CLI global
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/sentinel ./cmd/sentinel
+          # Compilar el Agente Daemon
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/sentinel-agent ./cmd/sentinel-agent
+          # Comprimir en un tarball para la release
+          tar -czvf sentinel-${{ github.ref_name }}-linux-amd64.tar.gz -C build sentinel sentinel-agent
 
       - name: Create Github Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: sentinel
+          files: sentinel-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

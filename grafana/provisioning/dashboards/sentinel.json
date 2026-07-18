@@ -1,0 +1,79 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Sentinel Overview",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1
+    },
+    {
+      "title": "Requests per Minute",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 1 },
+      "id": 2,
+      "targets": [
+        { "expr": "rate(sentinel_requests_total[1m]) * 60", "legendFormat": "Requests" }
+      ]
+    },
+    {
+      "title": "Total Errors",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 1 },
+      "id": 3,
+      "targets": [
+        { "expr": "sum(sentinel_errors_total)", "legendFormat": "Errors" }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "LLM Performance & Latency",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 },
+      "id": 4
+    },
+    {
+      "title": "Gemini Inference Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+      "id": 5,
+      "targets": [
+        { "expr": "rate(sentinel_llm_latency_seconds_sum[5m]) / rate(sentinel_llm_latency_seconds_count[5m])", "legendFormat": "Avg Latency (s)" }
+      ]
+    },
+    {
+      "title": "Context Payload Size",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+      "id": 6,
+      "targets": [
+        { "expr": "sentinel_context_payload_bytes", "legendFormat": "Payload Bytes" }
+      ]
+    },
+    {
+      "title": "Token Consumption Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+      "id": 7,
+      "targets": [
+        { "expr": "rate(sentinel_prompt_tokens_total[5m])", "legendFormat": "Prompt Tokens/s" },
+        { "expr": "rate(sentinel_completion_tokens_total[5m])", "legendFormat": "Completion Tokens/s" }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["sre", "sentinel", "llm"],
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Sentinel Diagnostics Telemetry",
+  "version": 1
+}
