@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out our repository code
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Go environment
@@ -22,14 +22,14 @@ jobs:
         with:
           go-version: '1.22.x'
 
-      - name: Install Linting Tools
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60.3
+
+      - name: Run errcheck
         run: |
           go install github.com/kisielk/errcheck@latest
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.1
-
-      - name: Run Linters & Errcheck
-        run: |
-          golangci-lint run ./...
           errcheck ./...
 
       - name: Verify compilation (Build check)
@@ -42,11 +42,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           mkdir -p build
-          # Compilar el CLI global
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/sentinel ./cmd/sentinel
-          # Compilar el Agente Daemon
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o build/sentinel-agent ./cmd/sentinel-agent
-          # Comprimir en un tarball para la release
           tar -czvf sentinel-${{ github.ref_name }}-linux-amd64.tar.gz -C build sentinel sentinel-agent
 
       - name: Create Github Release
