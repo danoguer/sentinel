@@ -36,7 +36,7 @@ func Item(status Status, title, subtitle string) string {
 }
 
 func KeyValue(key, value string) string {
-	formattedKey := fmt.Sprintf("%s", key)
+	formattedKey := key
 	return fmt.Sprintf("%s %s", keyStyle.Render(formattedKey), boldStyle.Render(value))
 }
 
