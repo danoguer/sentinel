@@ -31,7 +31,7 @@ var doctorCmd = &cobra.Command{
 			allPassed = false
 			infraLines = append(infraLines, render.Item(render.Error, "Sentinel Agent Daemon", fmt.Sprintf("Disconnected. Missing socket: %s", socketPath)))
 		} else {
-			conn.Close()
+			_ = conn.Close()
 			infraLines = append(infraLines, render.Item(render.Success, "Sentinel Agent Daemon", "Connected successfully via UNIX socket."))
 		}
 

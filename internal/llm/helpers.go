@@ -71,7 +71,7 @@ func localGetHistory() string {
 	if err != nil {
 		return "Error: Vault is empty or not found."
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	stat, err := file.Stat()
 	if err != nil {

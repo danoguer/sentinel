@@ -20,7 +20,7 @@ func StartSocketListener(vault *TerminalData, socketPath string) {
 		fmt.Fprintf(os.Stderr, "sentinel agent: failed to start socket listener: %v\n", err)
 		return
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	if err := os.Chmod(socketPath, 0777); err != nil {
 		fmt.Fprintf(os.Stderr, "sentinel agent: warning: failed to change socket permissions: %v\n", err)
@@ -37,7 +37,7 @@ func StartSocketListener(vault *TerminalData, socketPath string) {
 }
 
 func handleIPCConnection(c net.Conn, vault *TerminalData) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	startTime := time.Now()
 
 	var req transport.ContextEnvelope

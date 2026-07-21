@@ -11,7 +11,7 @@ func SendToAgent(socketPath string, envelope ContextEnvelope) (*AgentResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Sentinel Agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := json.NewEncoder(conn).Encode(envelope); err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
