@@ -18,7 +18,13 @@ var (
 	Date    = "unknown"
 )
 
-func main() {
+type AgentConfig struct {
+	UID        int
+	VaultPath  string
+	SocketPath string
+}
+
+func loadConfig() AgentConfig {
 	_ = godotenv.Overload("secrets/.env")
 
 	uid := os.Getuid()
@@ -33,7 +39,40 @@ func main() {
 		socketPath = fmt.Sprintf("/tmp/sentinel_%d.sock", uid)
 	}
 
-	v, err := vault.NewTerminalData(vaultPath)
+	return AgentConfig{
+		UID:        uid,
+		VaultPath:  vaultPath,
+		SocketPath: socketPath,
+	}
+}
+
+func startHTTPServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("200 OK"))
+	})
+
+	go func() {
+		fmt.Println("📊 Telemetry and Health server listening on :2112")
+		if err := http.ListenAndServe(":2112", mux); err != nil {
+			log.Printf("HTTP Server Error: %v", err)
+		}
+	}()
+}
+
+func waitForShutdown() {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+
+	fmt.Println("\n🛡️  Sentinel Agent: Shutting down...")
+}
+
+func main() {
+	cfg := loadConfig()
+
+	v, err := vault.NewTerminalData(cfg.VaultPath)
 	if err != nil {
 		log.Fatalf("Critical: %v", err)
 	}
@@ -41,25 +80,10 @@ func main() {
 
 	fmt.Println("🚀 Sentinel Agent Daemon starting...")
 
-	go vault.StartSocketListener(v, socketPath)
-	fmt.Printf("🛡️  Sentinel Warehouse open at %s\n", socketPath)
+	go vault.StartSocketListener(v, cfg.SocketPath)
+	fmt.Printf("🛡️  Sentinel Warehouse open at %s\n", cfg.SocketPath)
 
-	// Corregido: Ignoramos explícitamente los valores de retorno para cumplir con errcheck
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("200 OK"))
-	})
+	startHTTPServer()
 
-	go func() {
-		if err := http.ListenAndServe(":2112", nil); err != nil {
-			log.Printf("HTTP Server Error: %v", err)
-		}
-	}()
-	fmt.Println("📊 Telemetry and Health server listening on :2112")
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
-
-	fmt.Println("\n🛡️  Sentinel Agent: Shutting down...")
+	waitForShutdown()
 }

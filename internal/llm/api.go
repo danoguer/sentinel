@@ -18,6 +18,7 @@ func AnalyzeContext(apiKey string, envelope transport.ContextEnvelope, vaultMemo
 	sentinelPrompt := fmt.Sprintf(`You are Sentinel, an elite SRE CLI tool.
 - Current host system time: %s
 - Always respond in the language used by the user.
+- CRITICAL: If the user asks about a file, script, or configuration, you MUST use the 'analyze_local_environment' tool with 'files_to_read' to inspect its contents first. Never assume a file is missing without checking via the tool.
 
 CRITICAL ULTRA-BREVITY RULES:
 1. Max 1 short sentence for the core diagnosis. Do not describe healthy components, only the absolute failure.
@@ -38,7 +39,7 @@ CRITICAL ULTRA-BREVITY RULES:
 			FunctionDeclarations: []*genai.FunctionDeclaration{
 				{
 					Name:        "analyze_local_environment",
-					Description: "Fetches extra context like system stats or terminal history log.",
+					Description: "Fetches extra context like system stats, terminal history log or reads files from the workspace.",
 					Parameters: &genai.Schema{
 						Type: genai.TypeObject,
 						Properties: map[string]*genai.Schema{
@@ -49,6 +50,13 @@ CRITICAL ULTRA-BREVITY RULES:
 							"fetch_system_telemetry": {
 								Type:        genai.TypeBoolean,
 								Description: "Set to true to read system load, hostname and OS distribution data.",
+							},
+							"files_to_read": {
+								Type:        genai.TypeArray,
+								Description: "List of file paths or file names to read from the project or system for analysis.",
+								Items: &genai.Schema{
+									Type: genai.TypeString,
+								},
 							},
 						},
 					},
@@ -77,14 +85,14 @@ CRITICAL ULTRA-BREVITY RULES:
 				userPromptBuilder.WriteString(fmt.Sprintf("[%s] %s\n", log.Source, log.Line))
 			}
 		}
-
-		if len(envelope.Context.Files) > 0 {
-			userPromptBuilder.WriteString("\n[Inspected Configuration/Error Files]:\n")
-			for _, file := range envelope.Context.Files {
-				userPromptBuilder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", file.Path, file.Content))
-			}
-		}
 		userPromptBuilder.WriteString("-----------------------------------------------\n")
+	}
+
+	if len(envelope.Context.Files) > 0 {
+		userPromptBuilder.WriteString("\n[Inspected Configuration/Error Files]:\n")
+		for _, file := range envelope.Context.Files {
+			userPromptBuilder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", file.Path, file.Content))
+		}
 	}
 
 	var history []*genai.Content
@@ -123,24 +131,8 @@ CRITICAL ULTRA-BREVITY RULES:
 		var toolResult string
 
 		if funcName == "analyze_local_environment" {
-			fmt.Printf("🛡️  Sentinel: Gemini requested auxiliary context. Fulfilling...\n")
-
-			args := part.FunctionCall.Args
-			var builder strings.Builder
-
-			if fetchTelemetry, ok := args["fetch_system_telemetry"].(bool); ok && fetchTelemetry {
-				sys := envelope.Context.System
-				builder.WriteString(fmt.Sprintf("[System Telemetry]\nOS: %s\nLoad Average: %s\nHostname: %s\nUptime Status: %s\nMemory Status: %s\n",
-					sys.OS, sys.LoadAverage, sys.Hostname, sys.Uptime, sys.Memory))
-			}
-			if fetchVault, ok := args["fetch_terminal_vault"].(bool); ok && fetchVault {
-				builder.WriteString(fmt.Sprintf("[Sanitized Terminal History]\n%s\n", strings.Join(vaultMemory, "\n")))
-			}
-
-			toolResult = builder.String()
-			if toolResult == "" {
-				toolResult = "No specific context was requested or available."
-			}
+			fmt.Printf("🛡️  Sentinel: Gemini requested auxiliary context (Files/Telemetry/Vault). Fulfilling...\n")
+			toolResult = ExecuteAnalyzeLocalEnvironment(part.FunctionCall.Args)
 		} else {
 			toolResult = fmt.Sprintf("Error: Tool '%s' not implemented.", funcName)
 		}

@@ -33,13 +33,13 @@ if [ ! -d "$SOCKET_DIR" ]; then
 fi
 
 sudo chown "$USER:$USER" "$SOCKET_DIR"
+sudo chmod 777 "$SOCKET_DIR"
 echo -e "${GREEN}✓ IPC directory ready.${NC}\n"
 
 mkdir -p bin
 go build -o bin/sentinel ./cmd/sentinel
 echo -e "${GREEN}✓ CLI compiled at ./bin/sentinel${NC}\n"
 
-# NUEVO: Instalación global automática creando un symlink en /usr/local/bin
 echo "📦 Installing CLI globally (requires sudo)..."
 sudo ln -sf "$(pwd)/bin/sentinel" /usr/local/bin/sentinel
 echo -e "${GREEN}✓ CLI available globally at /usr/local/bin/sentinel${NC}\n"
@@ -47,7 +47,7 @@ echo -e "${GREEN}✓ CLI available globally at /usr/local/bin/sentinel${NC}\n"
 docker compose --env-file secrets/.env up --build -d
 echo -e "${GREEN}✓ Infrastructure running in background.${NC}\n"
 
-sleep 1
+sleep 2
 if [ -S "$SOCKET_DIR/sentinel.sock" ]; then
     echo -e "${GREEN}✓ Active UNIX Socket detected at $SOCKET_DIR/sentinel.sock${NC}\n"
 else

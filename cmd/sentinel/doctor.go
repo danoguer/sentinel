@@ -13,6 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func init() {
+	rootCmd.AddCommand(explainCmd)
+	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(doctorCmd)
+}
+
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Run local system checks for Sentinel",

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +18,74 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "sentinel",
 	Short: "Sentinel is an AI-powered Context Engine",
+}
+
+func attachLocalPaths(args []string, ctx *contextbuilder.Context) {
+	for _, arg := range args {
+		info, err := os.Stat(arg)
+		if err != nil {
+			continue
+		}
+
+		if info.IsDir() {
+			_ = filepath.WalkDir(arg, func(path string, d os.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return nil
+				}
+				if d.IsDir() {
+					name := d.Name()
+					if name == ".git" || name == "vendor" || name == "node_modules" || name == "bin" || name == ".idea" {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if stat, statErr := d.Info(); statErr == nil && stat.Size() < 50*1024 {
+					if content, readErr := os.ReadFile(path); readErr == nil {
+						ctx.Files = append(ctx.Files, contextbuilder.FileEntry{
+							Path:    path,
+							Content: string(content),
+						})
+					}
+				}
+				return nil
+			})
+		} else {
+			if content, readErr := os.ReadFile(arg); readErr == nil {
+				ctx.Files = append(ctx.Files, contextbuilder.FileEntry{
+					Path:    arg,
+					Content: string(content),
+				})
+			}
+		}
+	}
+}
+
+func renderAnalysisFormated(rawAnswer string) string {
+	var processedLines []string
+	rawLines := strings.Split(rawAnswer, "\n")
+
+	for _, line := range rawLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "```") {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`") && strings.Count(trimmed, "`") == 2 {
+			processedLines = append(processedLines, render.Code(strings.Trim(trimmed, "`")))
+		} else if strings.HasPrefix(strings.ToLower(trimmed), "docker ") || strings.HasPrefix(strings.ToLower(trimmed), "nginx ") || strings.HasPrefix(trimmed, "$ ") {
+			processedLines = append(processedLines, render.Code(trimmed))
+		} else {
+			if strings.Count(trimmed, "`") >= 2 {
+				parts := strings.Split(trimmed, "`")
+				for i := 1; i < len(parts); i += 2 {
+					parts[i] = render.InlineCode(parts[i])
+				}
+				trimmed = strings.Join(parts, "")
+			}
+			processedLines = append(processedLines, trimmed)
+		}
+	}
+	return render.SubBlock(strings.Join(processedLines, "\n\n"))
 }
 
 var explainCmd = &cobra.Command{
@@ -43,15 +112,18 @@ var explainCmd = &cobra.Command{
 
 			contextStart = time.Now()
 			if collector.Supports() {
-				var err error
-				ctx, err = collector.Collect()
-				if err == nil {
-					if target == "docker" {
+				if collectedCtx, err := collector.Collect(); err == nil {
+					ctx = collectedCtx
+					switch target {
+					case "docker":
 						collectorName = "Docker"
 						vectors = []string{"docker ps -a", "docker inspect", "docker core metrics", "container tail logs"}
-					} else if target == "nginx" {
+					case "nginx":
 						collectorName = "Nginx"
 						vectors = []string{"nginx -V", "nginx status endpoint", "error.log tails"}
+					default:
+						collectorName = strings.ToUpper(target[:1]) + target[1:]
+						vectors = []string{"service status", "service logs"}
 					}
 				}
 			}
@@ -63,6 +135,7 @@ var explainCmd = &cobra.Command{
 			question = strings.Join(args, " ")
 
 			contextStart = time.Now()
+			attachLocalPaths(args, &ctx)
 			ctx.System = contextbuilder.CollectBaseSystem()
 			vectors = []string{"host core load", "ram footprint", "current working directory"}
 			ctx.Sanitize()
@@ -93,13 +166,12 @@ var explainCmd = &cobra.Command{
 
 		fmt.Println()
 		fmt.Println(centerBlock(render.HeaderBox("🛡 SENTINEL EXPLAIN")))
-		fmt.Println(centerBlock(render.TopBar("v0.3.0", "Connected", "Gemini Flash", "AWS: IAM Role")))
+		fmt.Println(centerBlock(render.TopBar("v2.0.0", "Connected", "Gemini Flash", "AWS: IAM Role")))
 
 		loading := render.NewSpinner("Gathering context and negotiating with Sentinel Agent")
 		loading.Start()
 
 		resp, err := transport.SendToAgent(socketPath, envelope)
-
 		loading.Stop()
 
 		if err != nil {
@@ -131,34 +203,13 @@ var explainCmd = &cobra.Command{
 		for _, v := range vectors {
 			contextLines = append(contextLines, render.Item(render.Success, v, ""))
 		}
+		if len(ctx.Files) > 0 {
+			contextLines = append(contextLines, render.Item(render.Success, fmt.Sprintf("%d local files/folders attached", len(ctx.Files)), ""))
+		}
 		fmt.Println(render.SubBlock(strings.Join(contextLines, "\n")))
 
 		fmt.Println(render.Section("Analysis"))
-		var processedLines []string
-		rawLines := strings.Split(resp.Answer, "\n")
-
-		for _, line := range rawLines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "```") {
-				continue
-			}
-
-			if strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`") && strings.Count(trimmed, "`") == 2 {
-				processedLines = append(processedLines, render.Code(strings.Trim(trimmed, "`")))
-			} else if strings.HasPrefix(strings.ToLower(trimmed), "docker ") || strings.HasPrefix(strings.ToLower(trimmed), "nginx ") || strings.HasPrefix(trimmed, "$ ") {
-				processedLines = append(processedLines, render.Code(trimmed))
-			} else {
-				if strings.Count(trimmed, "`") >= 2 {
-					parts := strings.Split(trimmed, "`")
-					for i := 1; i < len(parts); i += 2 {
-						parts[i] = render.InlineCode(parts[i])
-					}
-					trimmed = strings.Join(parts, "")
-				}
-				processedLines = append(processedLines, trimmed)
-			}
-		}
-		fmt.Println(render.SubBlock(strings.Join(processedLines, "\n\n")))
+		fmt.Println(renderAnalysisFormated(resp.Answer))
 
 		footerData := fmt.Sprintf("%s\n%s\n%s",
 			render.KeyValue("Context collected", fmt.Sprintf("%d ms", contextDuration)),
@@ -182,7 +233,6 @@ var statusCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(explainCmd)
 	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(doctorCmd)
 }
 
 func main() {
