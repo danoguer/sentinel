@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"Sentinel/pkg/sanitize"
 	"Sentinel/internal/metrics"
+	"Sentinel/pkg/sanitize"
 )
 
 type TerminalData struct {
-	sync.Mutex
+	mu     sync.Mutex
 	Memory []string
 	vault  *os.File
 }
@@ -29,10 +29,10 @@ func NewTerminalData(logPath string) (*TerminalData, error) {
 }
 
 func (w *TerminalData) Close() {
-	w.Lock()
-	defer w.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.vault != nil {
-		w.vault.Close()
+		_ = w.vault.Close()
 	}
 }
 
@@ -54,8 +54,8 @@ func (w *TerminalData) AddLine(rawLine string) {
 		return
 	}
 
-	w.Lock()
-	defer w.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	w.Memory = append(w.Memory, sanitizedLine)
 	if len(w.Memory) > 50 {

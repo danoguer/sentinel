@@ -22,7 +22,6 @@ func StartSocketListener(vault *TerminalData, socketPath string) {
 	}
 	defer sock.Close()
 
-	// CAMBIO AQUÍ: Forzar permisos 0777 al archivo del socket recién creado
 	if err := os.Chmod(socketPath, 0777); err != nil {
 		fmt.Fprintf(os.Stderr, "sentinel agent: warning: failed to change socket permissions: %v\n", err)
 	}
@@ -61,10 +60,10 @@ func handleIPCConnection(c net.Conn, vault *TerminalData) {
 
 		fmt.Printf("🧠 Consulting Gemini (Passive Diagnostic Mode)...\n")
 
-		vault.Lock()
+		vault.mu.Lock()
 		vaultCopy := make([]string, len(vault.Memory))
 		copy(vaultCopy, vault.Memory)
-		vault.Unlock()
+		vault.mu.Unlock()
 
 		geminiResponse, err := llm.AnalyzeContext(apiKey, req, vaultCopy)
 		if err != nil {
