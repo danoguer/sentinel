@@ -20,16 +20,13 @@ jobs:
       - name: Set up Go environment
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: '1.26.x'
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-
-      - name: Run errcheck
+      - name: Install and Run Linters & Errcheck
         run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
           go install github.com/kisielk/errcheck@latest
+          golangci-lint run ./...
           errcheck ./...
 
       - name: Verify compilation (Build check)
